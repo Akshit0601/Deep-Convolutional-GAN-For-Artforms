@@ -1,6 +1,9 @@
 # Deep Convolutional GAN (DCGAN) for WikiArt Image Generation
 
 A PyTorch implementation of a Deep Convolutional Generative Adversarial Network (DCGAN) trained on the Kaggle [WikiArt](https://www.kaggle.com/datasets/steubk/wikiart/data) dataset. Features convolutional generator and discriminator networks with spectral normalization, batch normalization, label smoothing, AdamW optimizer with Cosine Annealing learning rate scheduling, automated on-the-fly streaming dataset extraction, TensorBoard tracking, and sample synthesis utilities.
+<p align="center">
+<img width="662" height="332" alt="grid_50_samples" src="https://github.com/user-attachments/assets/d214a6d0-3f9c-47fd-8ba7-8b358f3fd0ac" />
+   </p>
 
 ---
 
