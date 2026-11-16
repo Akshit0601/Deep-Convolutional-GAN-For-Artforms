@@ -1,13 +1,20 @@
-from .model import Encoder, Decoder, VAE
-from .scheduler import get_warmup_cosine_scheduler
-from .dataset import get_dataloaders, ensure_dataset, get_transforms
+"""
+GAN module exports.
+"""
+
+from .gan_model import Generator, Discriminator
+from .gan_dataset import (
+    WikiArtDataset,
+    get_gan_transforms,
+    get_gan_dataloaders,
+    ensure_wikiart_dataset,
+)
 
 __all__ = [
-    "Encoder",
-    "Decoder",
-    "VAE",
-    "get_warmup_cosine_scheduler",
-    "get_dataloaders",
-    "ensure_dataset",
-    "get_transforms",
+    "Generator",
+    "Discriminator",
+    "WikiArtDataset",
+    "get_gan_transforms",
+    "get_gan_dataloaders",
+    "ensure_wikiart_dataset",
 ]

@@ -1,6 +1,6 @@
-# Convolutional VAE for Chest X-Ray Medical Image Generation
+# Deep Convolutional GAN (DCGAN) for WikiArt Image Generation
 
-A PyTorch implementation of a Convolutional Variational Autoencoder (Conv-VAE) trained on the Kaggle [Chest X-Ray Images (Pneumonia)](https://www.kaggle.com/datasets/paultimothymooney/chest-xray-pneumonia) dataset. Includes on-demand dataset caching, AdamW optimization with Warmup Cosine learning rate scheduling, TensorBoard visualization, model checkpointing, and evaluation using Fréchet Inception Distance (FID) and Inception Score (IS).
+A PyTorch implementation of a Deep Convolutional Generative Adversarial Network (DCGAN) trained on the Kaggle [WikiArt](https://www.kaggle.com/datasets/steubk/wikiart/data) dataset. Features convolutional generator and discriminator networks with spectral normalization, batch normalization, label smoothing, AdamW optimizer with Cosine Annealing learning rate scheduling, automated on-the-fly streaming dataset extraction, TensorBoard tracking, and sample synthesis utilities.
 
 ---
 
@@ -8,14 +8,13 @@ A PyTorch implementation of a Convolutional Variational Autoencoder (Conv-VAE) t
 
 ### Prerequisites
 * Python 3.12+
-* NVIDIA GPU with CUDA drivers (e.g., RTX 4050)
+* NVIDIA GPU with CUDA drivers (e.g., RTX 4050 Laptop GPU)
 * Kaggle account with API credentials
 
 ### Step-by-Step Setup
 
-1. **Create and Activate Virtual Environment**:
+1. **Activate Virtual Environment**:
    ```bash
-   python3 -m venv .venv
    source .venv/bin/activate
    ```
 
@@ -24,11 +23,12 @@ A PyTorch implementation of a Convolutional Variational Autoencoder (Conv-VAE) t
    pip install --upgrade pip
    pip install -r requirements.txt
    ```
-   *Installs PyTorch with CUDA acceleration, `tensorboard`, `kaggle`, `pytorch-ignite`, `torchvision`, `pillow`, and supporting numerical libraries.*
 
-3. **Configure Kaggle Credentials** *(Required for automatic dataset download)*:
+3. **Configure Kaggle Credentials** *(Required for automatic WikiArt dataset streaming)*:
+   Ensure `~/.kaggle/credentials.json` or `~/.kaggle/kaggle.json` exists, or set environment variables:
    ```bash
-   kaggle auth login
+   export KAGGLE_USERNAME="your-username"
+   export KAGGLE_KEY="your-api-key"
    ```
 
 ---
@@ -36,114 +36,96 @@ A PyTorch implementation of a Convolutional Variational Autoencoder (Conv-VAE) t
 ## 2. Workspace Structure
 
 ```
-vae_setup/
+vae_setup/ (branch: gan)
 ├── .gitignore            # Git ignore rules
 ├── requirements.txt      # Project dependencies
-├── config.py             # Hyperparameter & training configuration
-├── train.py              # Training loop, checkpointing & TensorBoard logging
-├── evaluate.py           # FID & Inception Score evaluation script
-├── verify_env.py         # Environment & CUDA smoke test
+├── gan_config.yaml       # GAN Hyperparameter & dataset configuration (YAML)
+├── gan_config.py         # GAN Configuration dataclass & YAML loader
+├── train_gan.py          # GAN Training pipeline, checkpointing & TensorBoard logging
+├── sample_gan.py         # Sample synthesis & Top-K realest images extraction script
+├── evaluate_gan.py       # GAN Generation & evaluation script
 ├── README.md             # Project documentation
 │
 ├── src/
 │   ├── __init__.py       # Package exports
-│   ├── model.py          # Conv-VAE architecture (Encoder, Decoder, VAE)
-│   ├── dataset.py        # Kaggle dataset downloader, caching & DataLoaders
-│   └── scheduler.py      # Warmup Cosine learning rate scheduler
+│   ├── gan_model.py      # DCGAN architecture (Generator, Discriminator)
+│   └── gan_dataset.py    # WikiArt dataset streaming loader & transforms
 │
-├── data/                 # Cached dataset directory
-├── checkpoints/          # Saved model checkpoints
-└── runs/                 # TensorBoard event logs
+├── data/
+│   └── wikiart/          # Extracted WikiArt images categorized by artform
+├── checkpoints/
+│   └── dcgan/            # Trained DCGAN checkpoints (best_dcgan.pt, latest_dcgan.pt)
+├── outputs/              # Generated visual sample grids and individual images
+│   └── generated_samples/# N-samples output and top realest extractions
+└── runs/
+    └── wikiart_dcgan/    # TensorBoard logs (Losses, D(x), D(G(z)), LR, visuals)
 ```
 
 ---
 
-## 3. Source Modules (`src/`)
+## 3. Configuration (`gan_config.yaml`)
 
-| Script | Purpose & Usecase |
-| :--- | :--- |
-| **`src/model.py`** | Implements modular `nn.Module` classes: <br>• **`Encoder`**: 5-stage downsampling (`Conv2d` $\to$ `BatchNorm2d` $\to$ `LeakyReLU`) projecting to $\mu$ and $\log \sigma^2$. <br>• **`Decoder`**: Feature projection, 5-stage upsampling (`ConvTranspose2d` $\to$ `BatchNorm2d` $\to$ `LeakyReLU`), and final `Tanh()` activation. <br>• **`VAE`**: Connects Encoder and Decoder with the Gaussian reparameterization trick ($z = \mu + \sigma \odot \epsilon$), sampling methods, and total loss computation ($\text{MSE} + \beta \cdot D_{\text{KL}}$). |
-| **`src/dataset.py`** | Data handling and caching: <br>• **`ensure_dataset()`**: Checks if `data/chest_xray` exists. If not, automatically downloads and extracts the dataset from Kaggle. <br>• **Caching**: The raw images are cached in `data/`; subsequent runs load directly from disk without re-downloading. <br>• **`get_dataloaders()`**: Builds PyTorch `DataLoader` instances for `train` (5,216 images), `val` (16 images), and `test` (624 images) splits, converting images to 3-channel RGB and normalizing to $[-1, 1]$. |
-| **`src/scheduler.py`** | Implements `get_warmup_cosine_scheduler()`: <br>• Linearly ramps the learning rate during the first few warmup epochs to prevent early posterior collapse. <br>• Applies smooth Cosine Annealing decay down to `min_lr` over the remaining epochs for fine-grained feature sharpening. |
+Configuration is managed entirely through YAML (no `argparse` required for training):
 
----
+```yaml
+dataset:
+  name: "wikiart"
+  kaggle_slug: "steubk/wikiart"
+  data_dir: "data/wikiart"
+  img_size: 64
+  channels: 3
+  num_workers: 4
+  max_dataset_size_gb: 5.0
+  max_images_per_artform: 1000
 
-## 4. Configuration Parameters (`config.py`)
+model:
+  z_dim: 128
+  ngf: 64
+  ndf: 64
+  spectral_norm: true
 
-All hyperparameters and pipeline options are centralized in `config.py`:
+training:
+  batch_size: 64
+  num_epochs: 200
+  lr: 0.0002
+  beta1: 0.5
+  beta2: 0.999
+  weight_decay: 0.0001
+  label_smoothing: 0.1
+  scheduler: "cosine"
 
-```python
-@dataclass
-class VAEConfig:
-    # --- Dataset Settings ---
-    dataset_name: str = "chest-xray"
-    kaggle_dataset_slug: str = "paultimothymooney/chest-xray-pneumonia"
-    data_dir: str = "data"                   # Cached dataset location
-    img_size: int = 64                       # Target image resolution (64x64)
-    in_channels: int = 3                     # RGB channels matching Tanh output
-    num_workers: int = 2                     # Background data loader workers
-
-    # --- Model Architecture ---
-    hidden_dims: List[int] = [32, 64, 128, 256, 512]  # Channel sizes per layer
-    latent_dim: int = 1024                   # Dimension of bottleneck latent code z
-
-    # --- Training Hyperparameters ---
-    batch_size: int = 16                     # Batch size for training & evaluation
-    num_epochs: int = 80                     # Total training epochs
-    warmup_epochs: int = 5                   # Linear learning rate warmup epochs
-    base_lr: float = 5e-4                    # Peak learning rate for AdamW
-    min_lr: float = 1e-6                     # Minimum learning rate at end of cosine decay
-    weight_decay: float = 1e-2               # Decoupled weight decay for AdamW
-    kld_weight: float = 0.00025              # Beta weight balancing Reconstruction vs KL loss
-
-    # --- Logging & Checkpoints ---
-    log_dir: str = "runs/chest_xray_vae/batch_16"       # TensorBoard directory
-    checkpoint_dir: str = "checkpoints/batch_16"        # Checkpoint directory
-    sample_interval_epochs: int = 2          # Log visual image grids every N epochs
+logging:
+  log_dir: "runs/wikiart_dcgan"
+  checkpoint_dir: "checkpoints/dcgan"
+  sample_interval_epochs: 5
+  fixed_noise_samples: 16
 ```
 
 ---
 
-## 5. Training (`train.py`)
+## 4. Training the GAN
 
-To start model training:
+Launch training:
 ```bash
-source .venv/bin/activate
-python train.py
+python train_gan.py
 ```
 
-### What `train.py` Does:
-1. **Dataset Caching**: Checks `data/chest_xray`. If missing, downloads and unzips from Kaggle automatically. If already present, skips downloading and uses the local cache.
-2. **Optimization**: Trains using `AdamW` and the `Warmup Cosine` scheduler on GPU (`cuda`).
-3. **TensorBoard Logging**: Generates live logs in `runs/`:
-   * **Scalars**: `Loss/Train_Total`, `Loss/Train_Reconstruction`, `Loss/Train_KLD`, validation losses, and `Learning_Rate`.
-   * **Images**: Visual comparison grids showing real validation images side-by-side with VAE reconstructions, and random synthetic images sampled from $\mathcal{N}(0, I)$.
-4. **Checkpointing**:
-   * Automatically saves the best model based on validation loss to `checkpoints/batch_16/best_vae.pt`.
-   * Saves the most recent epoch weights to `checkpoints/batch_16/latest_vae.pt`.
-
-### Live Monitoring:
-In another terminal, launch TensorBoard:
+### TensorBoard Monitoring
+Monitor training progress, discriminator/generator losses, real/fake scores, and visual samples in real time:
 ```bash
-source .venv/bin/activate
-tensorboard --logdir runs/chest_xray_vae --port 6006
+tensorboard --logdir runs/wikiart_dcgan
 ```
-Open **`http://localhost:6006`** in your browser.
 
 ---
 
-## 6. Evaluation (`evaluate.py`)
+## 5. Generating Samples
 
-Computes **Fréchet Inception Distance (FID)** and **Inception Score (IS)** using `pytorch-ignite`:
+Synthesize new artwork using the best saved checkpoint:
 
-1. Set your desired checkpoint at the top of [`evaluate.py`](file:///home/akshit/vae_setup/evaluate.py#L23):
-   ```python
-   CKPT_PATH = "checkpoints/batch_16/best_vae.pt"
-   ```
-2. Run evaluation:
-   ```bash
-   python evaluate.py
-   ```
-3. **Outputs**:
-   * Prints FID score (lower is better) and Inception Score (higher is better) evaluated against the 624 real test images.
-   * Saves a 16-sample grid of generated synthetic X-rays to `outputs/generated_samples_for_report.png`.
+```bash
+# Generate 50 samples and extract top 6 most realistic images
+python sample_gan.py --n 50 --top-k 6
+
+# Generate 100 samples with custom grid settings
+python sample_gan.py --n 100 --top-k 10 --output-dir outputs/my_art
+```
