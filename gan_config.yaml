@@ -1,0 +1,32 @@
+# DCGAN Configuration for WikiArt Dataset
+dataset:
+  name: "wikiart"
+  kaggle_slug: "steubk/wikiart"
+  data_dir: "data/wikiart"
+  img_size: 64              # was 28 — need spatial detail for art
+  channels: 3               # was 1 — colour is critical for art styles
+  num_workers: 4
+  max_dataset_size_gb: 5.0
+  max_images_per_artform: 1000
+
+model:
+  z_dim: 128                # was 64 — more latent capacity
+  ngf: 64                   # generator base feature maps
+  ndf: 64                   # discriminator base feature maps
+  spectral_norm: true       # spectral normalisation on discriminator
+
+training:
+  batch_size: 64
+  num_epochs: 200           # was 50 — DCGAN needs more epochs
+  lr: 0.0002
+  beta1: 0.5
+  beta2: 0.999
+  weight_decay: 0.0001      # was 0.01 — less aggressive for GANs
+  label_smoothing: 0.1      # soft labels: real=0.9, fake=0.1
+  scheduler: "cosine"       # cosine annealing LR schedule
+
+logging:
+  log_dir: "runs/wikiart_dcgan"
+  checkpoint_dir: "checkpoints/dcgan"
+  sample_interval_epochs: 5
+  fixed_noise_samples: 16
